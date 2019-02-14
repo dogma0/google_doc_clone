@@ -39,7 +39,7 @@ class Doc:
         await self.notify_users()
 
     async def unregister(self, websocket):
-        self.remove_connection(websockets)
+        self.remove_connection(websocket)
         await self.notify_users()
 
 DOCS = {'t1': Doc('t1')}
