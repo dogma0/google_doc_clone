@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebSocket demo</title>
+</head>
+
+<body>
+    <div>
+        <input class="docname" type="text" name="docname"><br>
+    </div>
+    <textarea rows="8" cols="100" id='txta'>
+    At w3schools.com you will learn how to make a website. We offer free tutorials in all web development technologies.
+    </textarea>
+    <div class="state">
+        <span class="users">?</span> online
+
+    </div>
+    <script>
+        var textarea = document.querySelector('#txta');
+        users = document.querySelector('.users');
+        docname = document.querySelector('.docname');
+        websocket = new WebSocket("ws://127.0.0.1:7600/");
+        
+
+        docname.onchange = function (event) {
+            console.log("docname changed!");
+            websocket.send(JSON.stringify({
+                docname: docname.value
+            }))
+        }
+
+        textarea.oninput = function (event) {
+            console.log("Text changed!")
+            websocket.send(JSON.stringify({ text: textarea.value }));
+        }
+        websocket.onmessage = function (event) {
+            data = JSON.parse(event.data);
+            switch (data.type) {
+                case 'state':
+                    console.log(data.text)
+                    textarea.value = data.text;
+                    break;
+                case 'users':
+                    users.textContent = (
+                        data.count.toString() + " user" +
+                        (data.count == 1 ? "" : "s"));
+                    break;
+                default:
+                    console.error(
+                        "unsupported event", data);
+            }
+        };
+    </script>
+</body>
+
+</html>
