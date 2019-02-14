@@ -48,19 +48,19 @@ def state_event(text):
     return json.dumps({'type': 'state', 'text': text})
 
 async def get_collab_doc(ws):
-    doc_name = await ws.recv()
+    message = await ws.recv()
+    doc_name = json.loads(message)['docname']
     doc = DOCS[doc_name]
     return doc
 
 async def make_connection(websocket, path):
     doc = await get_collab_doc(websocket)
-    doc.register(websocket)
+    await doc.register(websocket)
     try:
         await websocket.send(state_event(doc.get_text()))
         async for message in websocket:
-            print(f"Received message: {message}")
             data = json.loads(message)
-            doc.settext(data['text'])
+            doc.set_text(data['text'])
             await doc.notify_state(data['text'])
     finally:
         await doc.unregister(websocket)

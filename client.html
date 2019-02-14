@@ -7,7 +7,8 @@
 
 <body>
     <div>
-        <input class="docname" type="text" name="docname"><br>
+        <input id="docname" type="text" name="docname"><br>
+        <button id="btn" type="submit" name="Submit">Submit</button>
     </div>
     <textarea rows="8" cols="100" id='txta'>
     At w3schools.com you will learn how to make a website. We offer free tutorials in all web development technologies.
@@ -19,11 +20,12 @@
     <script>
         var textarea = document.querySelector('#txta');
         users = document.querySelector('.users');
-        docname = document.querySelector('.docname');
+        docname = document.getElementById('docname');
+        button = document.getElementById('btn');
         websocket = new WebSocket("ws://127.0.0.1:7600/");
-        
 
-        docname.onchange = function (event) {
+
+        button.onclick = function (event) {
             console.log("docname changed!");
             websocket.send(JSON.stringify({
                 docname: docname.value
