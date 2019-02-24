@@ -1,35 +1,37 @@
 import asyncio
 import json
-import websockets
 import os
 
+import websockets
 
-class Doc:
-    def __init__(self, docname, connected=set(), text='', revisions=[]):
-        self.docname = docname
-        self.connected = connected
+
+storage_dirname = 'commits'
+
+
+class Document:
+    def __init__(self, name, connections=set(), text='', commits=[]):
+        self.name = name
+        self.connections = connections
         self.text = text
-        self.revisions = revisions
+        self.commits = commits
+        self.storage_path = f'{storage_dirname}/{self.name}'
 
-    def add_connection(self, user_socket):
-        self.connected.add(user_socket)
+    def add_connection(self, connection):
+        self.connections.add(connection)
 
-    def remove_connection(self, user_socket):
-        self.connected.remove(user_socket)
+    def remove_connection(self, connection):
+        self.connections.remove(connection)
 
-    def add_revision(self, revision):
-        if not os.path.exists(f'revisions/{self.docname}'):
-            os.makedirs(f'revisions/{self.docname}')
-        file = open(os.path.join(f'revisions/{self.docname}',
-                                 str(self.get_hash(revision))), 'w')
-        file.write(revision)
-        file.close()
+    def add_commit(self, commit):
+        def get_hash(revision):
+            return abs(hash(self.name+revision))
+        commit_fname = os.path.join(self.storage_path,
+                                    str(get_hash(commit)))
+        with open(commit_fname, 'w') as f:
+            f.write(commit)
 
-    def get_hash(self, revision):
-        return abs(hash(self.docname+revision))
-
-    def get_revisions(self):
-        return self.revisions
+    def get_commits(self):
+        return self.commits
 
     def get_text(self):
         return self.text
@@ -37,100 +39,126 @@ class Doc:
     def set_text(self, text):
         self.text = text
 
-    def users_event(self):
-        return json.dumps({'type': 'users', 'count': len(self.connected)})
-
-    def state_event(self):
+    def connections_event(self):
         return json.dumps({
-            'type': 'state',
-            'text': self.get_text(),
+            'type': 'connections',
+            'value': len(self.connections)})
+
+    def text_event(self):
+        return json.dumps({
+            'type': 'text',
+            'value': self.get_text(),
         })
 
-    def get_revision_fnames(self):
-        return [revision_fname for revision_fname in
-                os.listdir(f'revisions/{self.docname}')]
-
-    def revision_event(self):
+    def commits_event(self):
         return json.dumps({
-            'type': 'revision',
-            'revision_links': self.get_revision_fnames()
+            'type': 'commits',
+            'value': [fname for fname in
+                      os.listdir(self.storage_path)]
         })
 
-    async def notify_revisions(self):
-        if os.listdir(f'revisions/{self.docname}'):
-            message = self.revision_event()
-            print(f'Message is {message}')
-            await asyncio.wait([user.send(message) for user in self.connected])
+    async def notify_commits(self):
+        if os.listdir(self.storage_path):
+            message = self.commits_event()
+            await asyncio.wait(
+                [connection.send(message)
+                 for connection in self.connections]
+            )
 
-    async def notify_state(self, text):
-        if self.connected:       # asyncio.wait doesn't accept an empty list
-            message = self.state_event()
-            await asyncio.wait([user.send(message) for user in self.connected])
+    async def notify_text(self, text):
+        if self.connections:       # asyncio.wait doesn't accept an empty list
+            message = self.text_event()
+            await asyncio.wait(
+                [connection.send(message)
+                 for connection in self.connections]
+            )
 
-    async def notify_users(self):
-        if self.connected:       # asyncio.wait doesn't accept an empty list
-            message = self.users_event()
-            await asyncio.wait([user.send(message) for user in self.connected])
+    async def notify_connections(self):
+        if self.connections:       # asyncio.wait doesn't accept an empty list
+            message = self.connections_event()
+            await asyncio.wait(
+                [connection.send(message)
+                 for connection in self.connections]
+            )
 
     async def register(self, websocket):
+        if not os.path.exists(self.storage_path):
+            os.makedirs(self.storage_path)
         self.add_connection(websocket)
-        await self.notify_users()
-        await websocket.send(self.state_event())
+        await self.notify_connections()
+        await websocket.send(self.text_event())
+        await websocket.send(self.commits_event())
 
     async def unregister(self, websocket):
         self.remove_connection(websocket)
-        await self.notify_users()
+        await self.notify_connections()
+        if not self.connections:
+            del DOCUMENTS[self.name]
 
 
-DOCS = {'t1': Doc('t1')}
+DOCUMENTS = {}
 
 
-async def invite_subscription(ws):
-    ''' Wait for websocket to state which document to join, 
-    if the document doesn't exist, create
-    a new one. Register websocket to the document after, and return the document.
+async def invite(websocket):
+    ''' Block till connection says which document it likes to edit and view,
+    return the object representing the document.
     '''
-    message = await ws.recv()
-    doc_name = json.loads(message)['value']
-    if doc_name not in DOCS:
-        DOCS[doc_name] = Doc(doc_name)
-    doc = DOCS[doc_name]
-    await doc.register(ws)
-    return doc
-
-
-def get_doc(doc_name):
-    return DOCS[doc_name]
+    def getfiles_modtime_sorted(dirpath):
+        a = [s for s in os.listdir(dirpath)
+             if os.path.isfile(os.path.join(dirpath, s))]
+        a.sort(key=lambda s: os.path.getmtime(os.path.join(dirpath, s)))
+        return a
+    message = await websocket.recv()
+    req = json.loads(message)
+    print(f"--> req: {req}")
+    if req['type'] == "START_CONN":
+        doc_name = json.loads(message)['value']
+        if doc_name not in DOCUMENTS:
+            doc_dir = f'commits/{doc_name}'
+            if os.listdir(doc_dir):
+                latest_ver = getfiles_modtime_sorted(doc_dir)[-1]
+                with open(f'{doc_dir}/{latest_ver}') as f:
+                    DOCUMENTS[doc_name] = Document(
+                        doc_name,
+                        text=f.read())
+            else:
+                DOCUMENTS[doc_name] = Document(doc_name)
+        doc = DOCUMENTS[doc_name]
+        await doc.register(websocket)
+        return doc
+    raise ValueError("Connection is not established!")
 
 
 async def ws_handler(websocket, path):
-    print(f"===Handing a new connection: {websocket} ===")
-    doc = await invite_subscription(websocket)
+    print(f"--> Handing a new connection: {websocket}")
+    doc = await invite(websocket)
     try:
+        # Wait for messages to come in from websocket
+        print(f"--> Start processing messages for {websocket}")
         async for message in websocket:
-            data = json.loads(message)
-            if data['type'] == 'SET_REVISION':
-                revision = data['value']
-                doc.set_text(revision)
-                doc.add_revision(revision)
-                await doc.notify_state(revision)
-                await doc.notify_revisions()
-            elif data['type'] == 'SET_DOCNAME':
-                doc_name = data['value']
-                doc = DOCS[doc_name]
-                await doc.notify_users()
-            elif data['type'] == 'SET_DOCTEXT':
-                text = data['value']
+            req = json.loads(message)
+            # APIs for websocket clients
+            if req['type'] == 'ADD_COMMIT':
+                commit = req['value']
+                doc.set_text(commit)
+                doc.add_commit(commit)
+                await doc.notify_text(commit)
+                await doc.notify_commits()
+            elif req['type'] == 'SET_TEXT':
+                text = req['value']
                 doc.set_text(text)
-                await doc.notify_state(text)
-            elif data['type'] == 'GET_REVISION':
-                await doc.notify_revisions()
+                await doc.notify_text(text)
+            elif req['type'] == 'GET_COMMITS':
+                await doc.notify_commits()
+            else:
+                print(f'''--> ERROR: Connection {websocket} is trying to using an 
+                undefined API. request => {req}''')
     finally:
         await doc.unregister(websocket)
 
 
 def start_server():
-    print("===Starting WS server===")
+    print("--> Starting WS server")
     asyncio.get_event_loop().run_until_complete(
         websockets.serve(
             ws_handler,

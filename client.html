@@ -2,27 +2,26 @@
 <html>
 
 <head>
-  <title>Textbook Authoring</title>
+  <title>Tophat-Doc</title>
 </head>
 
 <body>
   <div>
-    <input id="docname_tb" type="text"><br>
-    <button id="btn" type="submit" name="Submit">Submit</button>
+    <input id="docname" type="text"><br>
+    <button id="docname_btn">JOIN DOCUMENT!</button>
   </div>
-  <textarea rows="100" cols="100" id='txta'>
-      This is some example text
-    </textarea>
+  <textarea rows="20" cols="40" id='textarea'>
+      DEFAULT TEXT
+  </textarea>
   <div>
-    <button id="save_draft" type="submit" name="Save Draft">Save Draft</button>
+    <button id="commit_btn">COMMIT</button>
   </div>
-
-  <div class="state">
+  <div>
     <div>
-      <span class="users">?</span> online
+      <span id="num_users">?</span> online
     </div>
     <div>
-      <ul id="revision_links">
+      <ul id="commit_urls">
         List of Revisoins:
       </ul>
     </div>
@@ -30,78 +29,67 @@
 
 
   <script>
-    const textarea = document.querySelector('#txta');
-    users = document.querySelector('.users');
-    docname_tb = document.getElementById('docname_tb');
-    button = document.getElementById('btn');
-    save_draft_button = document.getElementById('save_draft');
-    revision_links = document.getElementById('revision_links');
-    websocket = new WebSocket("ws://127.0.0.1:7600/");
-    set_docname = (docName) => {
-      console.log("setting docname");
-      websocket.send(JSON.stringify({
-        type: "SET_DOCNAME",
-        value: docName
-      }));
+    const textarea = document.getElementById('textarea');
+    num_users = document.getElementById('num_users');
+    docname = document.getElementById('docname');
+    docname_btn = document.getElementById('docname_btn');
+    commit_btn = document.getElementById('commit_btn');
+    commit_urls = document.getElementById('commit_urls');
+    ws = new WebSocket("ws://127.0.0.1:7600/");
+    ws_send = (apiType, value) => {
+      msg = JSON.stringify({
+        type: apiType,
+        value: value
+      });
+      console.log(`--> Sending message: ${msg}`);
+      ws.send(msg)
     };
 
-    // If there's an input in docname textbox on connection's opening,
-    // try connecting to their channel
-    websocket.onopen = (event) => {
-      if (docname_tb.value) {
-        set_docname(docname_tb.value);
-        websocket.send(JSON.stringify({
-          type: "GET_REVISION",
-          value: docname_tb.value
-        }))
-      }
+    commit_btn.onclick = function (event) {
+      ws_send("ADD_COMMIT", textarea.value)
     }
 
-    save_draft_button.onclick = function (event) {
-      console.log("Saving draft!");
-      websocket.send(JSON.stringify({
-        type: "SET_REVISION",
-        value: textarea.value
-      }))
-    };
-
-    button.onclick = function (event) { 
-      set_docname(docname_tb.value);
-    };
+    docname_btn.onclick = function (event) {
+      ws_send("START_CONN", docname.value)
+    }
 
     textarea.oninput = function (event) {
-      console.log("Text changed!")
-      websocket.send(JSON.stringify({
-        type: "SET_DOCTEXT",
-        value: textarea.value
-      }));
-    };
-    websocket.onmessage = function (event) {
-      data = JSON.parse(event.data);
-      switch (data.type) {
-        case 'state':
-          console.log(data.text)
-          textarea.value = data.text;
+      ws_send("SET_TEXT", textarea.value)
+    }
+
+    // For interacting with websocket server
+    ws.onmessage = function (event) {
+      const req_txt = event.data
+      const req = JSON.parse(event.data)
+      console.log(`--> Received ${req_txt}`)
+      switch (req.type) {
+        case 'text':
+          textarea.value = req.value;
           break;
-        case 'users':
-          users.textContent = (
-            data.count.toString() + " user" +
-            (data.count == 1 ? "" : "s"));
+        case 'connections':
+          cnt = req.value
+          num_users.textContent = `${cnt} user${cnt == 1 ? "" : "s"}`
           break;
-        case 'revision':
-          const append_links = function (r_links) {
-            const bound_addr = '127.0.0.1';
-            const port = '8000';
-            console.log(r_links)
-            for (let i = 0; i < r_links.length; i++) {
-              revision_links.innerHTML += `<li><a href=http://${bound_addr}:${port}/${docname_tb.value}/${r_links[i]}>${r_links[i]}</a></li>`;
+        case 'commits':
+          const show_links = (fnames) => {
+            const bound_addr = '127.0.0.1'
+            const port = '8000'
+            let urls = '';
+            for (let i = 0; i < fnames.length; i++) {
+              urls += `
+              <li>
+                <a href=http://${bound_addr}:${port}/${docname.value}/${fnames[i]}>
+                  ${fnames[i]}
+                </a>
+              </li>`;
             }
-          };
-          append_links(data.revision_links);
+            commit_urls.innerHTML = urls;
+          }
+          show_links(req.value);
           break;
         default:
-          console.error(
-            "unsupported event", data);
+          console.log(`--> ERROR: Unsupported API,
+           request => ${req_txt}`)
       }
     };
   </script>
