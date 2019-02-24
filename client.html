@@ -2,58 +2,109 @@
 <html>
 
 <head>
-    <title>WebSocket demo</title>
+  <title>Textbook Authoring</title>
 </head>
 
 <body>
-    <div>
-        <input id="docname" type="text" name="docname"><br>
-        <button id="btn" type="submit" name="Submit">Submit</button>
-    </div>
-    <textarea rows="100" cols="100" id='txta'>
-    At w3schools.com you will learn how to make a website. We offer free tutorials in all web development technologies.
+  <div>
+    <input id="docname_tb" type="text"><br>
+    <button id="btn" type="submit" name="Submit">Submit</button>
+  </div>
+  <textarea rows="100" cols="100" id='txta'>
+      This is some example text
     </textarea>
-    <div class="state">
-        <span class="users">?</span> online
+  <div>
+    <button id="save_draft" type="submit" name="Save Draft">Save Draft</button>
+  </div>
 
+  <div class="state">
+    <div>
+      <span class="users">?</span> online
     </div>
-    <script>
-        var textarea = document.querySelector('#txta');
-        users = document.querySelector('.users');
-        docname = document.getElementById('docname');
-        button = document.getElementById('btn');
-        websocket = new WebSocket("ws://127.0.0.1:7600/");
+    <div>
+      <ul id="revision_links">
+        List of Revisoins:
+      </ul>
+    </div>
+  </div>
 
 
-        button.onclick = function (event) {
-            console.log("docname changed!");
-            websocket.send(JSON.stringify({
-                docname: docname.value
-            }))
-        }
+  <script>
+    const textarea = document.querySelector('#txta');
+    users = document.querySelector('.users');
+    docname_tb = document.getElementById('docname_tb');
+    button = document.getElementById('btn');
+    save_draft_button = document.getElementById('save_draft');
+    revision_links = document.getElementById('revision_links');
+    websocket = new WebSocket("ws://127.0.0.1:7600/");
+    set_docname = (docName) => {
+      console.log("setting docname");
+      websocket.send(JSON.stringify({
+        type: "SET_DOCNAME",
+        value: docName
+      }));
+    };
 
-        textarea.oninput = function (event) {
-            console.log("Text changed!")
-            websocket.send(JSON.stringify({ text: textarea.value }));
-        }
-        websocket.onmessage = function (event) {
-            data = JSON.parse(event.data);
-            switch (data.type) {
-                case 'state':
-                    console.log(data.text)
-                    textarea.value = data.text;
-                    break;
-                case 'users':
-                    users.textContent = (
-                        data.count.toString() + " user" +
-                        (data.count == 1 ? "" : "s"));
-                    break;
-                default:
-                    console.error(
-                        "unsupported event", data);
+    // If there's an input in docname textbox on connection's opening,
+    // try connecting to their channel
+    websocket.onopen = (event) => {
+      if (docname_tb.value) {
+        set_docname(docname_tb.value);
+        websocket.send(JSON.stringify({
+          type: "GET_REVISION",
+          value: docname_tb.value
+        }))
+      }
+    }
+
+    save_draft_button.onclick = function (event) {
+      console.log("Saving draft!");
+      websocket.send(JSON.stringify({
+        type: "SET_REVISION",
+        value: textarea.value
+      }))
+    };
+
+    button.onclick = function (event) { 
+      set_docname(docname_tb.value);
+    };
+
+    textarea.oninput = function (event) {
+      console.log("Text changed!")
+      websocket.send(JSON.stringify({
+        type: "SET_DOCTEXT",
+        value: textarea.value
+      }));
+    };
+    websocket.onmessage = function (event) {
+      data = JSON.parse(event.data);
+      switch (data.type) {
+        case 'state':
+          console.log(data.text)
+          textarea.value = data.text;
+          break;
+        case 'users':
+          users.textContent = (
+            data.count.toString() + " user" +
+            (data.count == 1 ? "" : "s"));
+          break;
+        case 'revision':
+          const append_links = function (r_links) {
+            const bound_addr = '127.0.0.1';
+            const port = '8000';
+            console.log(r_links)
+            for (let i = 0; i < r_links.length; i++) {
+              revision_links.innerHTML += `<li><a href=http://${bound_addr}:${port}/${docname_tb.value}/${r_links[i]}>${r_links[i]}</a></li>`;
             }
-        };
-    </script>
+          };
+          append_links(data.revision_links);
+          break;
+        default:
+          console.error(
+            "unsupported event", data);
+      }
+    };
+  </script>
 </body>
 
 </html>
