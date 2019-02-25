@@ -94,6 +94,7 @@ class Document:
         await self.notify_connections()
         if not self.connections:
             del DOCUMENTS[self.name]
+        print(DOCUMENTS)
 
 
 DOCUMENTS = {}
@@ -115,13 +116,14 @@ async def invite(websocket):
         doc_name = json.loads(message)['value']
         if doc_name not in DOCUMENTS:
             doc_dir = f'commits/{doc_name}'
-            if os.listdir(doc_dir):
-                latest_ver = getfiles_modtime_sorted(doc_dir)[-1]
-                with open(f'{doc_dir}/{latest_ver}') as f:
-                    DOCUMENTS[doc_name] = Document(
-                        doc_name,
-                        text=f.read())
-            else:
+            try:
+                if os.listdir(doc_dir):
+                    latest_ver = getfiles_modtime_sorted(doc_dir)[-1]
+                    with open(f'{doc_dir}/{latest_ver}') as f:
+                        DOCUMENTS[doc_name] = Document(
+                            doc_name,
+                            text=f.read())
+            except FileNotFoundError:
                 DOCUMENTS[doc_name] = Document(doc_name)
         doc = DOCUMENTS[doc_name]
         await doc.register(websocket)
