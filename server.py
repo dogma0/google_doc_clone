@@ -82,8 +82,6 @@ class Document:
             )
 
     async def register(self, websocket):
-        if not os.path.exists(self.storage_path):
-            os.makedirs(self.storage_path)
         self.add_connection(websocket)
         await self.notify_connections()
         await websocket.send(self.text_event())
@@ -111,24 +109,38 @@ async def invite(websocket):
         return a
     message = await websocket.recv()
     req = json.loads(message)
+    doc_name = json.loads(message)['value']
+    doc_dir = f'commits/{doc_name}'
     print(f"--> req: {req}")
-    if req['type'] == "START_CONN":
-        doc_name = json.loads(message)['value']
-        if doc_name not in DOCUMENTS:
-            doc_dir = f'commits/{doc_name}'
-            try:
-                if os.listdir(doc_dir):
-                    latest_ver = getfiles_modtime_sorted(doc_dir)[-1]
-                    with open(f'{doc_dir}/{latest_ver}') as f:
-                        DOCUMENTS[doc_name] = Document(
-                            doc_name,
-                            text=f.read())
-            except FileNotFoundError:
-                DOCUMENTS[doc_name] = Document(doc_name)
+    if req['type'] != "START_CONN":
+        raise RuntimeError(f"Invalid request type: {req['type']}")
+    if not doc_name in DOCUMENTS:
+        if os.path.exists(doc_dir):
+            if os.listdir(doc_dir):
+                latest_ver = getfiles_modtime_sorted(doc_dir)[-1]
+                with open(f'{doc_dir}/{latest_ver}') as f:
+                    doc = Document(
+                        doc_name,
+                        text=f.read(),
+                        connections=set())
+            else:
+                doc = Document(
+                    doc_name,
+                    text='',
+                    connections=set()
+                )
+        else:
+            os.makedirs(doc_dir)
+            doc = Document(
+                doc_name,
+                text='',
+                connections=set()
+            )
+    else:
         doc = DOCUMENTS[doc_name]
-        await doc.register(websocket)
-        return doc
-    raise ValueError("Connection is not established!")
+    DOCUMENTS[doc_name] = doc
+    await doc.register(websocket)
+    return doc
 
 
 async def ws_handler(websocket, path):
@@ -153,7 +165,7 @@ async def ws_handler(websocket, path):
             elif req['type'] == 'GET_COMMITS':
                 await doc.notify_commits()
             else:
-                print(f'''--> ERROR: Connection {websocket} is trying to using an 
+                raise RuntimeError(f'''--> ERROR: Connection {websocket} is trying to using an 
                 undefined API. request => {req}''')
     finally:
         await doc.unregister(websocket)
